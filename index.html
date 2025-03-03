@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ticket Reservation System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        input,
+        button {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: #28a745;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #218838;
+        }
+
+        .log {
+            border: 1px solid #ccc;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            background: #f8f9fa;
+            margin-bottom: 20px;
+        }
+
+        .ticket-count {
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .timer-section {
+            margin-top: 20px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            background: #f8f9fa;
+        }
+
+        .timer {
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Ticket Reservation System</h1>
+        <div id="ticketCount" class="ticket-count">Available Tickets: 10</div>
+        <div class="input-group">
+            <label for="username">User Name:</label>
+            <input type="text" id="username" placeholder="Enter user name" />
+        </div>
+        <div class="input-group">
+            <label for="tickets">Number of Tickets:</label>
+            <input type="number" id="tickets" placeholder="Enter number of tickets" />
+        </div>
+        <button onclick="handleReserve()">Reserve Tickets</button>
+        <button onclick="handlePurchase()">Purchase Tickets</button>
+        <h2>Logs</h2>
+        <div class="log" id="log"></div>
+        <h2>User Timers</h2>
+        <div class="timer-section" id="timers"></div>
+    </div>
+
+    <script>
+        function PriorityQueue() {
+            var collection = [];
+            this.enqueue = function (element) {
+                if (this.isEmpty()) {
+                    collection.push(element);
+                } else {
+                    var added = false;
+                    for (var i = 0; i < collection.length; i++) {
+                        if (element[1] < collection[i][1]) {
+                            collection.splice(i, 0, element);
+                            added = true;
+                            break;
+                        }
+                    }
+                    if (!added) {
+                        collection.push(element);
+                    }
+                }
+            };
+            this.dequeue = function () {
+                return collection.shift();
+            };
+            this.isEmpty = function () {
+                return collection.length === 0;
+            };
+        }
+
+        const totalTickets = 10;
+        let availableTickets = totalTickets;
+        const reservedTickets = new Map();
+        const timers = new Map();
+        const waitingQueue = new PriorityQueue();
+
+        function updateTicketCount() {
+            const ticketCountElement = document.getElementById("ticketCount");
+            ticketCountElement.textContent = `Available Tickets: ${availableTickets}`;
+        }
+
+        function logMessage(message) {
+            const logElement = document.getElementById("log");
+            logElement.innerHTML += `<p>${message}</p>`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function updateTimers() {
+            const timersElement = document.getElementById("timers");
+            timersElement.innerHTML = "";
+            reservedTickets.forEach((value, user) => {
+                const timeLeft = Math.max(0, 60 - Math.floor((Date.now() - value.reservedAt) / 1000));
+                timersElement.innerHTML += `<div class="timer">${user}: ${timeLeft}s remaining</div>`;
+            });
+        }
+
+        function reserveTickets(user, ticketsRequested) {
+            if (availableTickets >= ticketsRequested) {
+                availableTickets -= ticketsRequested;
+                updateTicketCount();
+                const reservationTime = Date.now();
+                reservedTickets.set(user, { tickets: ticketsRequested, reservedAt: reservationTime });
+                logMessage(`${user} reserved ${ticketsRequested} tickets. Remaining tickets: ${availableTickets}`);
+
+                timers.set(
+                    user,
+                    setInterval(() => {
+                        updateTimers();
+                        const timeLeft = Math.max(0, 60 - Math.floor((Date.now() - reservationTime) / 1000));
+                        if (timeLeft === 0) {
+                            clearInterval(timers.get(user));
+                            timers.delete(user);
+                            releaseTickets(user);
+                            updateTimers();
+                        }
+                    }, 1000)
+                );
+            } else {
+                logMessage(`${user} requested ${ticketsRequested} tickets, but only ${availableTickets} are available. Adding to the queue.`);
+                waitingQueue.enqueue([user, Date.now()]);
+            }
+        }
+
+        function releaseTickets(user) {
+            if (reservedTickets.has(user)) {
+                const { tickets } = reservedTickets.get(user);
+                reservedTickets.delete(user);
+                availableTickets += tickets;
+                updateTicketCount();
+                logMessage(`${user} did not purchase ${tickets} tickets. Tickets released.`);
+
+                if (!waitingQueue.isEmpty()) {
+                    const nextUser = waitingQueue.dequeue()[0];
+                    logMessage(`${nextUser} is notified about ticket availability.`);
+                    reserveTickets(nextUser, tickets);
+                }
+            }
+        }
+
+        function purchaseTickets(user) {
+            if (reservedTickets.has(user)) {
+                const { tickets } = reservedTickets.get(user);
+                reservedTickets.delete(user);
+                clearInterval(timers.get(user));
+                timers.delete(user);
+                updateTimers();
+                logMessage(`${user} purchased ${tickets} tickets.`);
+            } else {
+                logMessage(`${user} has no reserved tickets to purchase.`);
+            }
+        }
+
+        function handleReserve() {
+            const username = document.getElementById("username").value.trim();
+            const tickets = parseInt(document.getElementById("tickets").value);
+
+            if (!username || isNaN(tickets) || tickets <= 0) {
+                logMessage("Invalid input. Please enter a valid username and ticket number.");
+                return;
+            }
+
+            reserveTickets(username, tickets);
+        }
+
+        function handlePurchase() {
+            const username = document.getElementById("username").value.trim();
+
+            if (!username) {
+                logMessage("Invalid input. Please enter a valid username.");
+                return;
+            }
+
+            purchaseTickets(username);
+        }
+    </script>
+</body>
+
+</html>
